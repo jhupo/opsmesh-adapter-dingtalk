@@ -84,7 +84,7 @@ def build_session_webhook_payload(
         if seg.data.get("btns"):
             card_body["btns"] = seg.data["btns"]
         else:
-            card_body["singleTitle"] = str(seg.data.get("single_title", "查看详情"))
+            card_body["singleTitle"] = str(seg.data.get("single_title", "View Details"))
             card_body["singleURL"] = str(seg.data.get("single_url", ""))
         return {"msgtype": "actionCard", "actionCard": card_body}
 
@@ -106,12 +106,83 @@ def build_session_webhook_payload(
     return payload
 
 
-def plan_openapi_units(message: Message) -> list[OpenAPIUnit]:
-    """Split a multimodal Message into ordered DingTalk OpenAPI send units.
+def _build_media_unit(seg: MessageSegment) -> OpenAPIUnit:
+    """Convert a media MessageSegment into a ready or deferred-upload OpenAPIUnit."""
+    if seg.type == "image":
+        photo = seg.data.get("media_id") or seg.data.get("url")
+        if photo:
+            return OpenAPIUnit(
+                msg_key="sampleImageMsg", msg_param={"photoURL": str(photo)}
+            )
+        return OpenAPIUnit(msg_key="sampleImageMsg", msg_param={}, media_segment=seg)
 
-    Consecutive text/at segments are coalesced into a single sampleText unit;
-    each markdown, action_card, image, file, audio, or video becomes its own unit.
-    """
+    media_id = seg.data.get("media_id")
+    if seg.type == "file":
+        if media_id:
+            return OpenAPIUnit(
+                msg_key="sampleFile",
+                msg_param={
+                    "mediaId": str(media_id),
+                    "fileName": str(seg.data.get("name") or "file.bin"),
+                    "fileType": str(seg.data.get("file_type") or "bin"),
+                },
+            )
+        return OpenAPIUnit(msg_key="sampleFile", msg_param={}, media_segment=seg)
+
+    if seg.type == "audio":
+        if media_id:
+            return OpenAPIUnit(
+                msg_key="sampleAudio",
+                msg_param={
+                    "mediaId": str(media_id),
+                    "duration": str(seg.data.get("duration") or 1000),
+                },
+            )
+        return OpenAPIUnit(msg_key="sampleAudio", msg_param={}, media_segment=seg)
+
+    pic_id = seg.data.get("pic_media_id")
+    if media_id and pic_id:
+        return OpenAPIUnit(
+            msg_key="sampleVideo",
+            msg_param={
+                "videoMediaId": str(media_id),
+                "videoType": str(seg.data.get("video_type") or "mp4"),
+                "duration": str(seg.data.get("duration") or 1000),
+                "picMediaId": str(pic_id),
+            },
+        )
+    return OpenAPIUnit(msg_key="sampleVideo", msg_param={}, media_segment=seg)
+
+
+def _segment_to_unit(seg: MessageSegment) -> OpenAPIUnit:
+    """Convert a single non-text MessageSegment to an OpenAPIUnit."""
+    if seg.type == "markdown":
+        return OpenAPIUnit(
+            msg_key="sampleMarkdown",
+            msg_param={
+                "title": str(seg.data.get("title", "Notification")),
+                "text": str(seg.data.get("text", "")),
+            },
+        )
+    if seg.type == "action_card":
+        return OpenAPIUnit(
+            msg_key="sampleActionCard",
+            msg_param={
+                "title": str(seg.data.get("title", "")),
+                "text": str(seg.data.get("text", "")),
+                "singleTitle": str(seg.data.get("single_title", "View Details")),
+                "singleURL": str(seg.data.get("single_url", "")),
+            },
+        )
+    if seg.type in {"image", "file", "audio", "video"}:
+        return _build_media_unit(seg)
+    raise DingTalkActionFailed(
+        f"Unsupported outbound MessageSegment type: {seg.type!r}"
+    )
+
+
+def plan_openapi_units(message: Message) -> list[OpenAPIUnit]:
+    """Split a multimodal Message into ordered DingTalk OpenAPI send units."""
     units: list[OpenAPIUnit] = []
     text_buf: list[str] = []
 
@@ -126,120 +197,13 @@ def plan_openapi_units(message: Message) -> list[OpenAPIUnit]:
             )
 
     for seg in message:
-        match seg.type:
-            case "text":
-                text_buf.append(str(seg.data.get("text", "")))
-            case "at":
-                text_buf.append(str(seg) + " ")
-            case "markdown":
-                _flush_text()
-                units.append(
-                    OpenAPIUnit(
-                        msg_key="sampleMarkdown",
-                        msg_param={
-                            "title": str(seg.data.get("title", "Notification")),
-                            "text": str(seg.data.get("text", "")),
-                        },
-                    )
-                )
-            case "action_card":
-                _flush_text()
-                param: T_JsonDict = {
-                    "title": str(seg.data.get("title", "")),
-                    "text": str(seg.data.get("text", "")),
-                    "singleTitle": str(seg.data.get("single_title", "查看详情")),
-                    "singleURL": str(seg.data.get("single_url", "")),
-                }
-                units.append(OpenAPIUnit(msg_key="sampleActionCard", msg_param=param))
-            case "image":
-                _flush_text()
-                photo = seg.data.get("media_id") or seg.data.get("url")
-                if photo:
-                    units.append(
-                        OpenAPIUnit(
-                            msg_key="sampleImageMsg",
-                            msg_param={"photoURL": str(photo)},
-                        )
-                    )
-                else:
-                    units.append(
-                        OpenAPIUnit(
-                            msg_key="sampleImageMsg",
-                            msg_param={},
-                            media_segment=seg,
-                        )
-                    )
-            case "file":
-                _flush_text()
-                media_id = seg.data.get("media_id")
-                if media_id:
-                    units.append(
-                        OpenAPIUnit(
-                            msg_key="sampleFile",
-                            msg_param={
-                                "mediaId": str(media_id),
-                                "fileName": str(seg.data.get("name") or "file.bin"),
-                                "fileType": str(seg.data.get("file_type") or "bin"),
-                            },
-                        )
-                    )
-                else:
-                    units.append(
-                        OpenAPIUnit(
-                            msg_key="sampleFile",
-                            msg_param={},
-                            media_segment=seg,
-                        )
-                    )
-            case "audio":
-                _flush_text()
-                media_id = seg.data.get("media_id")
-                if media_id:
-                    units.append(
-                        OpenAPIUnit(
-                            msg_key="sampleAudio",
-                            msg_param={
-                                "mediaId": str(media_id),
-                                "duration": str(seg.data.get("duration") or 1000),
-                            },
-                        )
-                    )
-                else:
-                    units.append(
-                        OpenAPIUnit(
-                            msg_key="sampleAudio",
-                            msg_param={},
-                            media_segment=seg,
-                        )
-                    )
-            case "video":
-                _flush_text()
-                media_id = seg.data.get("media_id")
-                pic_id = seg.data.get("pic_media_id")
-                if media_id and pic_id:
-                    units.append(
-                        OpenAPIUnit(
-                            msg_key="sampleVideo",
-                            msg_param={
-                                "videoMediaId": str(media_id),
-                                "videoType": str(seg.data.get("video_type") or "mp4"),
-                                "duration": str(seg.data.get("duration") or 1000),
-                                "picMediaId": str(pic_id),
-                            },
-                        )
-                    )
-                else:
-                    units.append(
-                        OpenAPIUnit(
-                            msg_key="sampleVideo",
-                            msg_param={},
-                            media_segment=seg,
-                        )
-                    )
-            case _:
-                raise DingTalkActionFailed(
-                    f"Unsupported outbound MessageSegment type: {seg.type!r}"
-                )
+        if seg.type == "text":
+            text_buf.append(str(seg.data.get("text", "")))
+        elif seg.type == "at":
+            text_buf.append(str(seg) + " ")
+        else:
+            _flush_text()
+            units.append(_segment_to_unit(seg))
 
     _flush_text()
     return units

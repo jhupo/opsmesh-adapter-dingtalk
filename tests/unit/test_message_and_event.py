@@ -115,11 +115,11 @@ def test_parse_richtext_file_audio_video_and_unknown_fallback() -> None:
             "content": {
                 "downloadCode": "a_code",
                 "duration": 3500,
-                "recognition": "重启服务",
+                "recognition": "restart service",
             },
         }
     )
-    assert audio_ev.get_message()["audio", 0].data["recognition"] == "重启服务"
+    assert audio_ev.get_message()["audio", 0].data["recognition"] == "restart service"
 
     unknown_ev = parse_chatbot_event({"conversationType": "1", "msgtype": "mystery"})
     assert len(unknown_ev.get_message()) == 1

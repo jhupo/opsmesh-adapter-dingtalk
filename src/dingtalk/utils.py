@@ -1,21 +1,17 @@
-"""OpsMesh loguru wrapper (with escape_tag) and bounded LRU+TTL DedupeRing."""
+"""OpsMesh loguru wrapper and bounded LRU+TTL DedupeRing."""
 
 from collections import OrderedDict
 from pathlib import Path
 import re
 import time
 
-from opsmesh.log import logger
-from opsmesh.utils import escape_tag
+from opsmesh.utils import logger_wrapper
+
+from dingtalk.typing import ADAPTER_NAME
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
-
-def log(level: str, message: str, exception: BaseException | None = None) -> None:
-    """Emit a tagged log message through OpsMesh's native loguru logger."""
-    logger.opt(colors=True, exception=exception).log(
-        level, f"<y>DingTalk</y> | {escape_tag(message)}"
-    )
+log = logger_wrapper(ADAPTER_NAME)
 
 
 def sanitize_filename(name: str | None, fallback: str = "attachment.bin") -> str:

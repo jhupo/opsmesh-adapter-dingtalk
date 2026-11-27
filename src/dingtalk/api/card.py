@@ -157,7 +157,7 @@ class AICardStream:
         user_id: str | None = None,
         out_track_id: str | None = None,
         throttle_interval: float = 0.15,
-        error_fallback: str = "生成失败，请稍后重试。",
+        error_fallback: str = "Generation failed. Please try again later.",
     ) -> None:
         self._gateway = gateway
         self._card_template_id = card_template_id

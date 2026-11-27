@@ -29,6 +29,17 @@ def _decode_json_body(response: Response) -> T_JsonDict:
     return parsed if isinstance(parsed, dict) else {"result": parsed}
 
 
+def _check_oapi_errcode(body: T_JsonDict, status_code: int, *, label: str) -> None:
+    errcode = body.get("errcode")
+    if errcode is not None and errcode != 0:
+        raise DingTalkActionFailed(
+            str(body.get("errmsg") or f"{label} error {errcode}"),
+            status_code=status_code,
+            code=errcode,
+            request_id=body.get("request_id"),
+        )
+
+
 class ApiClient:
     """Thin async HTTP client delegating all network I/O to OpsMesh Adapter."""
 
@@ -43,6 +54,29 @@ class ApiClient:
     @property
     def config(self) -> Config:
         return self._config
+
+    async def _send_json(
+        self,
+        request: Request,
+        *,
+        label: str,
+        msg_field: str = "errmsg",
+        code_field: str = "errcode",
+    ) -> tuple[int, T_JsonDict]:
+        try:
+            response = await self._adapter.request(request)
+        except Exception as exc:
+            raise DingTalkNetworkError(f"{label} request failed: {exc}") from exc
+
+        body = _decode_json_body(response)
+        if not (200 <= response.status_code < 300):
+            raise DingTalkActionFailed(
+                str(body.get(msg_field) or f"{label} HTTP {response.status_code}"),
+                status_code=response.status_code,
+                code=body.get(code_field),
+                request_id=body.get("requestid") or body.get("requestId"),
+            )
+        return response.status_code, body
 
     async def request_openapi(
         self,
@@ -67,19 +101,9 @@ class ApiClient:
             json=json_body,
             timeout=self._config.dingtalk_request_timeout,
         )
-        try:
-            response = await self._adapter.request(request)
-        except Exception as exc:
-            raise DingTalkNetworkError(f"OpenAPI request failed: {exc}") from exc
-
-        body = _decode_json_body(response)
-        if not (200 <= response.status_code < 300):
-            raise DingTalkActionFailed(
-                str(body.get("message") or f"OpenAPI HTTP {response.status_code}"),
-                status_code=response.status_code,
-                code=body.get("code"),
-                request_id=body.get("requestid") or body.get("requestId"),
-            )
+        _, body = await self._send_json(
+            request, label="OpenAPI", msg_field="message", code_field="code"
+        )
         return body
 
     async def request_oapi(
@@ -108,26 +132,8 @@ class ApiClient:
             files=files,
             timeout=self._config.dingtalk_request_timeout,
         )
-        try:
-            response = await self._adapter.request(request)
-        except Exception as exc:
-            raise DingTalkNetworkError(f"OAPI request failed: {exc}") from exc
-
-        body = _decode_json_body(response)
-        if not (200 <= response.status_code < 300):
-            raise DingTalkActionFailed(
-                str(body.get("errmsg") or f"OAPI HTTP {response.status_code}"),
-                status_code=response.status_code,
-                code=body.get("errcode"),
-            )
-        errcode = body.get("errcode")
-        if errcode is not None and errcode != 0:
-            raise DingTalkActionFailed(
-                str(body.get("errmsg") or f"OAPI error {errcode}"),
-                status_code=response.status_code,
-                code=errcode,
-                request_id=body.get("request_id"),
-            )
+        status, body = await self._send_json(request, label="OAPI")
+        _check_oapi_errcode(body, status, label="OAPI")
         return body
 
     async def post_webhook(self, webhook_url: str, payload: T_JsonDict) -> T_JsonDict:
@@ -148,25 +154,8 @@ class ApiClient:
             json=payload,
             timeout=self._config.dingtalk_request_timeout,
         )
-        try:
-            response = await self._adapter.request(request)
-        except Exception as exc:
-            raise DingTalkNetworkError(f"sessionWebhook POST failed: {exc}") from exc
-
-        body = _decode_json_body(response)
-        if not (200 <= response.status_code < 300):
-            raise DingTalkActionFailed(
-                str(body.get("errmsg") or f"Webhook HTTP {response.status_code}"),
-                status_code=response.status_code,
-                code=body.get("errcode"),
-            )
-        errcode = body.get("errcode")
-        if errcode is not None and errcode != 0:
-            raise DingTalkActionFailed(
-                str(body.get("errmsg") or f"Webhook error {errcode}"),
-                status_code=response.status_code,
-                code=errcode,
-            )
+        status, body = await self._send_json(request, label="Webhook")
+        _check_oapi_errcode(body, status, label="Webhook")
         return body
 
 

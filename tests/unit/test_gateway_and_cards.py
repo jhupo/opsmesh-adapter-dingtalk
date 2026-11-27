@@ -112,7 +112,7 @@ class _ApiMockDriver(Driver, HTTPClientMixin, WebSocketClientMixin):
                         "errcode": 0,
                         "result": {
                             "userid": "staff_001",
-                            "name": "张三",
+                            "name": "Alice",
                             "unionid": "union_001",
                             "job_number": "E1001",
                             "dept_id_list": [10, 20],
@@ -163,7 +163,7 @@ async def test_token_double_checked_lock_and_contact_ttl_cache() -> None:
     # UserProfile cached across repeated calls
     p1 = await gw.get_user_profile("staff_001")
     p2 = await gw.get_user_profile("staff_001")
-    assert p1.name == "张三"
+    assert p1.name == "Alice"
     assert p1.roles[0].name == "SRE"
     assert p2.job_number == "E1001"
     assert driver.user_calls == 1
@@ -198,7 +198,7 @@ async def test_gateway_send_webhook_vs_openapi_routing() -> None:
     driver.requests.clear()
     await gw.send(
         ev,
-        Message("请查收") + MessageSegment.file(content=b"abc", name="out.pdf"),
+        Message("Please check") + MessageSegment.file(content=b"abc", name="out.pdf"),
     )
     urls = [str(r.url) for r in driver.requests]
     assert any("/media/upload" in u for u in urls)

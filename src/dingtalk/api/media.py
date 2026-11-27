@@ -356,6 +356,100 @@ class MediaService:
             raise MediaError("DingTalk /media/upload response missing 'media_id'.")
         return media_id
 
+    async def _query_group_space_id(
+        self, *, access_token: str, union_id: str, open_conversation_id: str
+    ) -> str:
+        resp = await self._client.request_openapi(
+            "POST",
+            "/v1.0/convFile/conversations/spaces/query",
+            access_token=access_token,
+            params={"unionId": union_id},
+            json_body={"openConversationId": open_conversation_id},
+        )
+        space = resp.get("space")
+        space_id = space.get("spaceId") if isinstance(space, dict) else None
+        if not isinstance(space_id, str) or not space_id:
+            raise MediaError("Failed to query DingPan group spaceId.")
+        return space_id
+
+    async def _query_dingpan_upload_info(
+        self,
+        *,
+        access_token: str,
+        union_id: str,
+        space_id: str,
+        filename: str,
+        size: int,
+    ) -> tuple[str, str, dict[str, str]]:
+        info = await self._client.request_openapi(
+            "POST",
+            f"/v2.0/storage/spaces/{space_id}/files/0/uploadInfos/query",
+            access_token=access_token,
+            params={"unionId": union_id},
+            json_body={
+                "protocol": "HEADER_SIGNATURE",
+                "option": {"preCheckParam": {"name": filename, "size": size}},
+            },
+        )
+        upload_key = info.get("uploadKey")
+        sig_info = info.get("headerSignatureInfo")
+        if not isinstance(upload_key, str) or not isinstance(sig_info, dict):
+            raise MediaError("Invalid DingPan uploadInfos response.")
+        resource_urls = sig_info.get("resourceUrls")
+        if not isinstance(resource_urls, list) or not resource_urls:
+            raise MediaError("DingPan uploadInfos missing resourceUrls.")
+        oss_url = upgrade_oss_https(str(resource_urls[0]))
+        validate_download_origin(
+            oss_url, self._client.config.dingtalk_allowed_download_domains
+        )
+        oss_headers = {
+            str(k): str(v) for k, v in (sig_info.get("headers") or {}).items()
+        }
+        return upload_key, oss_url, oss_headers
+
+    async def _put_oss_bytes(
+        self, *, oss_url: str, headers: dict[str, str], raw_bytes: bytes
+    ) -> None:
+        put_req = Request(
+            "PUT",
+            oss_url,
+            headers=headers,
+            content=raw_bytes,
+            timeout=Timeout(
+                total=None,
+                connect=10.0,
+                read=self._client.config.dingtalk_download_read_timeout,
+                close=10.0,
+            ),
+        )
+        put_resp = await self._client.adapter.request(put_req)
+        if not (200 <= put_resp.status_code < 300):
+            raise MediaError(
+                f"DingPan OSS PUT upload failed (HTTP {put_resp.status_code})"
+            )
+
+    async def _commit_dingpan_file(
+        self,
+        *,
+        access_token: str,
+        union_id: str,
+        space_id: str,
+        upload_key: str,
+        filename: str,
+    ) -> str:
+        resp = await self._client.request_openapi(
+            "POST",
+            f"/v2.0/storage/spaces/{space_id}/files/0/commit",
+            access_token=access_token,
+            params={"unionId": union_id},
+            json_body={"uploadKey": upload_key, "name": filename, "parentId": "0"},
+        )
+        dentry = resp.get("dentry")
+        dentry_id = dentry.get("id") if isinstance(dentry, dict) else None
+        if not isinstance(dentry_id, str) or not dentry_id:
+            raise MediaError("DingPan commit response missing dentry.id.")
+        return dentry_id
+
     async def send_dingpan_file(
         self,
         *,
@@ -372,77 +466,30 @@ class MediaService:
         size = (await async_path.stat()).st_size
         resolved_name = sanitize_filename(filename or async_path.name)
 
-        space_resp = await self._client.request_openapi(
-            "POST",
-            "/v1.0/convFile/conversations/spaces/query",
+        space_id = await self._query_group_space_id(
             access_token=access_token,
-            params={"unionId": union_id},
-            json_body={"openConversationId": open_conversation_id},
+            union_id=union_id,
+            open_conversation_id=open_conversation_id,
         )
-        space_obj = space_resp.get("space")
-        space_id = space_obj.get("spaceId") if isinstance(space_obj, dict) else None
-        if not isinstance(space_id, str) or not space_id:
-            raise MediaError("Failed to query DingPan group spaceId.")
-
-        upload_info = await self._client.request_openapi(
-            "POST",
-            f"/v2.0/storage/spaces/{space_id}/files/0/uploadInfos/query",
+        upload_key, oss_url, oss_headers = await self._query_dingpan_upload_info(
             access_token=access_token,
-            params={"unionId": union_id},
-            json_body={
-                "protocol": "HEADER_SIGNATURE",
-                "option": {"preCheckParam": {"name": resolved_name, "size": size}},
-            },
+            union_id=union_id,
+            space_id=space_id,
+            filename=resolved_name,
+            size=size,
         )
-        upload_key = upload_info.get("uploadKey")
-        sig_info = upload_info.get("headerSignatureInfo")
-        if not isinstance(upload_key, str) or not isinstance(sig_info, dict):
-            raise MediaError("Invalid DingPan uploadInfos response.")
-
-        resource_urls = sig_info.get("resourceUrls")
-        oss_headers = sig_info.get("headers") or {}
-        if not isinstance(resource_urls, list) or not resource_urls:
-            raise MediaError("DingPan uploadInfos missing resourceUrls.")
-
-        oss_url = upgrade_oss_https(str(resource_urls[0]))
-        validate_download_origin(
-            oss_url, self._client.config.dingtalk_allowed_download_domains
+        await self._put_oss_bytes(
+            oss_url=oss_url,
+            headers=oss_headers,
+            raw_bytes=await async_path.read_bytes(),
         )
-        raw_bytes = await async_path.read_bytes()
-        put_req = Request(
-            "PUT",
-            oss_url,
-            headers={str(k): str(v) for k, v in oss_headers.items()},
-            content=raw_bytes,
-            timeout=Timeout(
-                total=None,
-                connect=10.0,
-                read=self._client.config.dingtalk_download_read_timeout,
-                close=10.0,
-            ),
-        )
-        put_resp = await self._client.adapter.request(put_req)
-        if not (200 <= put_resp.status_code < 300):
-            raise MediaError(
-                f"DingPan OSS PUT upload failed (HTTP {put_resp.status_code})"
-            )
-
-        commit_resp = await self._client.request_openapi(
-            "POST",
-            f"/v2.0/storage/spaces/{space_id}/files/0/commit",
+        dentry_id = await self._commit_dingpan_file(
             access_token=access_token,
-            params={"unionId": union_id},
-            json_body={
-                "uploadKey": upload_key,
-                "name": resolved_name,
-                "parentId": "0",
-            },
+            union_id=union_id,
+            space_id=space_id,
+            upload_key=upload_key,
+            filename=resolved_name,
         )
-        dentry = commit_resp.get("dentry")
-        dentry_id = dentry.get("id") if isinstance(dentry, dict) else None
-        if not isinstance(dentry_id, str) or not dentry_id:
-            raise MediaError("DingPan commit response missing dentry.id.")
-
         return await self._client.request_openapi(
             "POST",
             "/v1.0/convFile/conversations/files/send",

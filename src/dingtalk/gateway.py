@@ -477,7 +477,7 @@ class Gateway(BaseGateway):
         user_id: str | None = None,
         out_track_id: str | None = None,
         throttle_interval: float = 0.15,
-        error_fallback: str = "生成失败，请稍后重试。",
+        error_fallback: str = "Generation failed. Please try again later.",
     ) -> AICardStream:
         """Create an AICardStream async context manager for LLM typewriter replies."""
         conv_id = open_conversation_id
