@@ -2,82 +2,42 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .adapter import Adapter
-from .api import AICardStream
-from .config import BotConfig, Config
-from .event import (
-    AtUser,
-    CardCallbackEvent,
-    DingTalkEvent,
-    DownloadedMedia,
-    GroupMessageEvent,
-    LifecycleMetaEvent,
-    MessageEvent,
-    PlatformNoticeEvent,
-    PrivateMessageEvent,
-    RoleItem,
-    UserProfile,
-)
-from .exception import (
-    DingTalkActionFailed,
-    DingTalkAdapterException,
-    DingTalkNetworkError,
-    MediaError,
-    MediaLimitExceeded,
-    StreamProtocolError,
-    TokenError,
-)
-from .gateway import Gateway
-from .message import Message, MessageSegment
-from .typing import (
-    ADAPTER_NAME,
-    ConversationType,
-    DingTalkAction,
-    DingTalkMsgType,
-    FrameType,
-    MediaType,
-    SpaceType,
-    StreamTopic,
-)
-
 try:
     __version__: str | None = version("opsmesh-adapter-dingtalk")
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.1.0"
 
-__all__ = [
-    "ADAPTER_NAME",
-    "AICardStream",
-    "Adapter",
-    "AtUser",
-    "BotConfig",
-    "CardCallbackEvent",
-    "Config",
-    "ConversationType",
-    "DingTalkAction",
-    "DingTalkActionFailed",
-    "DingTalkAdapterException",
-    "DingTalkEvent",
-    "DingTalkMsgType",
-    "DingTalkNetworkError",
-    "DownloadedMedia",
-    "FrameType",
-    "Gateway",
-    "GroupMessageEvent",
-    "LifecycleMetaEvent",
-    "MediaError",
-    "MediaLimitExceeded",
-    "MediaType",
-    "Message",
-    "MessageEvent",
-    "MessageSegment",
-    "PlatformNoticeEvent",
-    "PrivateMessageEvent",
-    "RoleItem",
-    "SpaceType",
-    "StreamProtocolError",
-    "StreamTopic",
-    "TokenError",
-    "UserProfile",
-    "__version__",
-]
+
+from .adapter import Adapter as Adapter
+from .api import AICardStream as AICardStream
+from .config import BotConfig as BotConfig
+from .config import Config as Config
+from .event import AtUser as AtUser
+from .event import CardCallbackEvent as CardCallbackEvent
+from .event import DingTalkEvent as DingTalkEvent
+from .event import DownloadedMedia as DownloadedMedia
+from .event import GroupMessageEvent as GroupMessageEvent
+from .event import LifecycleMetaEvent as LifecycleMetaEvent
+from .event import MessageEvent as MessageEvent
+from .event import PlatformNoticeEvent as PlatformNoticeEvent
+from .event import PrivateMessageEvent as PrivateMessageEvent
+from .event import RoleItem as RoleItem
+from .event import UserProfile as UserProfile
+from .exception import DingTalkActionFailed as DingTalkActionFailed
+from .exception import DingTalkAdapterException as DingTalkAdapterException
+from .exception import DingTalkNetworkError as DingTalkNetworkError
+from .exception import MediaError as MediaError
+from .exception import MediaLimitExceeded as MediaLimitExceeded
+from .exception import StreamProtocolError as StreamProtocolError
+from .exception import TokenError as TokenError
+from .gateway import Gateway as Gateway
+from .message import Message as Message
+from .message import MessageSegment as MessageSegment
+from .typing import ADAPTER_NAME as ADAPTER_NAME
+from .typing import ConversationType as ConversationType
+from .typing import DingTalkAction as DingTalkAction
+from .typing import DingTalkMsgType as DingTalkMsgType
+from .typing import FrameType as FrameType
+from .typing import MediaType as MediaType
+from .typing import SpaceType as SpaceType
+from .typing import StreamTopic as StreamTopic
